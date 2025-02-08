@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
-import 'screens/tracking_screen.dart';
+import 'screens/main_navigation.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -14,7 +14,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Running Tracker',
+      title: 'SageRun',
       theme: ThemeData(
         // This is the theme of your application.
         //
@@ -34,7 +34,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: WithForegroundTask(child: const TrackingScreen()),
+      home: WithForegroundTask(child: const MainNavigation()),
     );
   }
 }
