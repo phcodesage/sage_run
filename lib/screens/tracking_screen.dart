@@ -7,7 +7,12 @@ import 'package:geolocator/geolocator.dart';
 import '../services/tracking_service.dart';
 
 class TrackingScreen extends StatefulWidget {
-  const TrackingScreen({super.key});
+  final String activityType;
+
+  const TrackingScreen({
+    super.key,
+    this.activityType = 'Run', // Default to Run
+  });
 
   @override
   State<TrackingScreen> createState() => _TrackingScreenState();
