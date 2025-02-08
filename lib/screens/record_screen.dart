@@ -90,10 +90,11 @@ class _RecordScreenState extends State<RecordScreen> {
   }
 
   void _startTracking() {
-    Navigator.of(context).push(
+    Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (context) => const TrackingScreen(),
-        fullscreenDialog: true,
+        builder: (context) => TrackingScreen(
+          activityType: _selectedActivity,
+        ),
       ),
     );
   }
