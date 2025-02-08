@@ -4,6 +4,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:location/location.dart';
 import 'package:geolocator/geolocator.dart';
+import '../services/tracking_service.dart';
 
 class TrackingScreen extends StatefulWidget {
   const TrackingScreen({super.key});
@@ -26,6 +27,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   @override
   void initState() {
     super.initState();
+    TrackingService.initForegroundTask();
     _checkLocationPermission();
   }
 
@@ -53,7 +55,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
       if (_isTracking) {
         _mapController.move(
           _currentPosition!,
-          _mapController.zoom,
+          _mapController.camera.zoom,
         );
       }
     });
@@ -71,7 +73,16 @@ class _TrackingScreenState extends State<TrackingScreen> {
       setState(() {
         _seconds++;
       });
+      TrackingService.updateTracking(
+        duration: _formatDuration(),
+        distance: (_distance / 1000).toStringAsFixed(2),
+      );
     });
+
+    TrackingService.startTracking(
+      duration: _formatDuration(),
+      distance: '0.00',
+    );
 
     _locationSubscription = _location.onLocationChanged.listen((LocationData currentLocation) {
       if (_isTracking) {
@@ -98,6 +109,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
     });
     _timer?.cancel();
     _locationSubscription?.cancel();
+    TrackingService.stopTracking();
   }
 
   String _formatDuration() {
@@ -110,6 +122,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   void dispose() {
     _timer?.cancel();
     _locationSubscription?.cancel();
+    TrackingService.stopTracking();
     super.dispose();
   }
 

@@ -51,5 +51,10 @@
 	<string>This app needs access to location when in the background to track your runs.</string>
 	<key>MGLMapboxAccessToken</key>
 	<string>YOUR_MAPBOX_ACCESS_TOKEN_HERE</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>fetch</string>
+	</array>
 </dict>
 </plist>
