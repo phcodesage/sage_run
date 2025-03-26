@@ -1,0 +1,2 @@
+/home/devart/proj/flutter-proj/sage_run/android/app/.cxx/Debug/5z4q2w1c/x86_64/CMakeFiles/edit_cache.dir
+/home/devart/proj/flutter-proj/sage_run/android/app/.cxx/Debug/5z4q2w1c/x86_64/CMakeFiles/rebuild_cache.dir

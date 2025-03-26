@@ -5,7 +5,10 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:location/location.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:uuid/uuid.dart';
 import '../services/tracking_service.dart';
+import '../services/activity_service.dart';
+import '../models/activity.dart';
 
 class TrackingScreen extends StatefulWidget {
   final String activityType;
@@ -20,16 +23,20 @@ class TrackingScreen extends StatefulWidget {
 }
 
 class _TrackingScreenState extends State<TrackingScreen> {
+  final TrackingService _trackingService = TrackingService();
   final MapController _mapController = MapController();
   final Location _location = Location();
-  bool _isTracking = false;
   List<LatLng> _routePoints = [];
-  Timer? _timer;
-  int _seconds = 0;
-  double _distance = 0.0;
+  bool _isTracking = false;
   StreamSubscription<LocationData>? _locationSubscription;
   LatLng? _currentPosition;
   bool _showControls = true;
+  DateTime? _startTime;
+  double _distance = 0.0;
+  LatLng? _lastPosition;
+  Timer? _timer;
+  Duration _duration = Duration.zero;
+  int _seconds = 0;
 
   @override
   void initState() {
@@ -42,9 +49,9 @@ class _TrackingScreenState extends State<TrackingScreen> {
   @override
   void dispose() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    _timer?.cancel();
     _locationSubscription?.cancel();
-    TrackingService.stopTracking();
+    _timer?.cancel();
+    _mapController.dispose();
     super.dispose();
   }
 
@@ -61,19 +68,21 @@ class _TrackingScreenState extends State<TrackingScreen> {
       if (permissionStatus != PermissionStatus.granted) return;
     }
 
-    _location.onLocationChanged.listen((LocationData currentLocation) {
-      setState(() {
-        _currentPosition = LatLng(
-          currentLocation.latitude!,
-          currentLocation.longitude!,
-        );
-      });
+    _locationSubscription = _location.onLocationChanged.listen((LocationData currentLocation) {
+      if (mounted) {
+        setState(() {
+          _currentPosition = LatLng(
+            currentLocation.latitude!,
+            currentLocation.longitude!,
+          );
+        });
       
-      if (_currentPosition != null) {
-        _mapController.move(
-          _currentPosition!,
-          _mapController.camera.zoom,
-        );
+        if (_currentPosition != null) {
+          _mapController.move(
+            _currentPosition!,
+            _mapController.camera.zoom,
+          );
+        }
       }
     });
   }
@@ -90,6 +99,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
       _routePoints = [];
       _seconds = 0;
       _distance = 0.0;
+      _startTime = DateTime.now();
     });
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -137,6 +147,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
     // Show confirmation dialog
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text('End Activity?'),
         content: const Text('Do you want to save this activity?'),
@@ -149,16 +160,43 @@ class _TrackingScreenState extends State<TrackingScreen> {
             child: const Text('Discard'),
           ),
           FilledButton(
-            onPressed: () {
-              // TODO: Save activity
-              Navigator.of(context).pop(); // Close dialog
-              Navigator.of(context).pop(); // Return to previous screen
+            onPressed: () async {
+              Navigator.of(context).pop(); // Close dialog first
+              if (mounted) {
+                await _saveActivity(); // Then save and navigate
+              }
             },
             child: const Text('Save'),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _saveActivity() async {
+    if (_startTime == null || _routePoints.isEmpty) return;
+
+    final activity = Activity(
+      id: const Uuid().v4(),
+      type: widget.activityType,
+      startTime: _startTime!,
+      endTime: DateTime.now(),
+      distance: _distance / 1000, // Convert to kilometers
+      routePoints: _routePoints,
+    );
+
+    try {
+      await ActivityService().saveActivity(activity);
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/'); // Navigate to home screen
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save activity: $e')),
+        );
+      }
+    }
   }
 
   String _formatDuration() {
