@@ -127,4 +127,18 @@ class AuthService {
     if (userJson == null) return null;
     return AppUser.fromJson(Map<String, dynamic>.from(userJson as Map));
   }
+
+  // Update user profile
+  Future<void> updateUser(AppUser user) async {
+    try {
+      // Update Firebase Auth display name
+      await _auth.currentUser?.updateDisplayName(user.name);
+      
+      // Update local storage
+      await _prefs.setString('user', user.toJson().toString());
+    } catch (e) {
+      print('Error updating user: $e');
+      rethrow;
+    }
+  }
 } 

@@ -11,11 +11,11 @@ import '../services/activity_service.dart';
 import '../models/activity.dart';
 
 class TrackingScreen extends StatefulWidget {
-  final String activityType;
+  final Position initialPosition;
 
   const TrackingScreen({
     super.key,
-    required this.activityType,
+    required this.initialPosition,
   });
 
   @override
@@ -24,6 +24,7 @@ class TrackingScreen extends StatefulWidget {
 
 class _TrackingScreenState extends State<TrackingScreen> {
   final TrackingService _trackingService = TrackingService();
+  final ActivityService _activityService = ActivityService();
   final MapController _mapController = MapController();
   final Location _location = Location();
   List<LatLng> _routePoints = [];
@@ -37,6 +38,9 @@ class _TrackingScreenState extends State<TrackingScreen> {
   Timer? _timer;
   Duration _duration = Duration.zero;
   int _seconds = 0;
+  double _currentPace = 0;
+  bool _isPaused = false;
+  DateTime? _pauseTime;
 
   @override
   void initState() {
@@ -44,6 +48,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     TrackingService.initForegroundTask();
     _checkLocationPermission();
+    _startTime = DateTime.now();
+    _startTracking();
   }
 
   @override
@@ -52,6 +58,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
     _locationSubscription?.cancel();
     _timer?.cancel();
     _mapController.dispose();
+    _trackingService.stopTracking();
     super.dispose();
   }
 
@@ -94,115 +101,105 @@ class _TrackingScreenState extends State<TrackingScreen> {
   }
 
   void _startTracking() {
-    setState(() {
-      _isTracking = true;
-      _routePoints = [];
-      _seconds = 0;
-      _distance = 0.0;
-      _startTime = DateTime.now();
+    _trackingService.startLocationUpdates((position) {
+      setState(() {
+        _routePoints.add(LatLng(position.latitude, position.longitude));
+        _updateStats(position);
+      });
     });
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {
-        _seconds++;
-      });
-      TrackingService.updateTracking(
-        duration: _formatDuration(),
-        distance: (_distance / 1000).toStringAsFixed(2),
-      );
-    });
-
-    TrackingService.startTracking(
-      duration: _formatDuration(),
-      distance: '0.00',
-    );
-
-    _locationSubscription = _location.onLocationChanged.listen((LocationData currentLocation) {
-      if (_isTracking) {
+      if (!_isPaused) {
         setState(() {
-          final newPoint = LatLng(currentLocation.latitude!, currentLocation.longitude!);
-          _routePoints.add(newPoint);
-          
-          if (_routePoints.length > 1) {
-            _distance += Geolocator.distanceBetween(
-              _routePoints[_routePoints.length - 2].latitude,
-              _routePoints[_routePoints.length - 2].longitude,
-              newPoint.latitude,
-              newPoint.longitude,
-            );
-          }
+          _duration += const Duration(seconds: 1);
         });
       }
     });
   }
 
-  void _stopTracking() {
+  void _updateStats(Position position) {
+    if (_routePoints.length > 1) {
+      final lastPoint = _routePoints[_routePoints.length - 2];
+      final currentPoint = _routePoints.last;
+      final distance = const Distance().as(LengthUnit.Kilometer, lastPoint, currentPoint);
+      _distance += distance;
+
+      if (_duration.inSeconds > 0) {
+        _currentPace = _duration.inSeconds / (_distance * 60); // minutes per kilometer
+      }
+    }
+  }
+
+  void _togglePause() {
     setState(() {
-      _isTracking = false;
+      _isPaused = !_isPaused;
+      if (_isPaused) {
+        _pauseTime = DateTime.now();
+        _trackingService.pauseTracking();
+      } else {
+        _startTime = _startTime!.add(DateTime.now().difference(_pauseTime!));
+        _trackingService.resumeTracking();
+      }
     });
+  }
+
+  Future<void> _stopTracking() async {
     _timer?.cancel();
-    _locationSubscription?.cancel();
-    TrackingService.stopTracking();
-    
-    // Show confirmation dialog
-    showDialog(
+    _trackingService.stopTracking();
+
+    final shouldSave = await showDialog<bool>(
       context: context,
-      barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('End Activity?'),
+        title: const Text('Save Activity?'),
         content: const Text('Do you want to save this activity?'),
         actions: [
           TextButton(
-            onPressed: () {
-              Navigator.of(context).pop(); // Close dialog
-              Navigator.of(context).pop(); // Return to previous screen
-            },
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('Discard'),
           ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.of(context).pop(); // Close dialog first
-              if (mounted) {
-                await _saveActivity(); // Then save and navigate
-              }
-            },
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
             child: const Text('Save'),
           ),
         ],
       ),
     );
-  }
 
-  Future<void> _saveActivity() async {
-    if (_startTime == null || _routePoints.isEmpty) return;
+    if (shouldSave == true) {
+      await _saveActivity();
+    }
 
-    final activity = Activity(
-      id: const Uuid().v4(),
-      type: widget.activityType,
-      startTime: _startTime!,
-      endTime: DateTime.now(),
-      distance: _distance / 1000, // Convert to kilometers
-      routePoints: _routePoints,
-    );
-
-    try {
-      await ActivityService().saveActivity(activity);
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/'); // Navigate to home screen
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save activity: $e')),
-        );
-      }
+    if (mounted) {
+      Navigator.pop(context);
     }
   }
 
-  String _formatDuration() {
-    final minutes = (_seconds / 60).floor();
-    final remainingSeconds = _seconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+  Future<void> _saveActivity() async {
+    final activity = Activity(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      type: 'Run',
+      startTime: _startTime!,
+      endTime: DateTime.now(),
+      distance: _distance,
+      routePoints: _routePoints,
+    );
+
+    await _activityService.saveActivity(activity);
+  }
+
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final hours = twoDigits(duration.inHours);
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+    return duration.inHours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+  }
+
+  String _formatPace(double pace) {
+    if (pace == 0) return '--:--';
+    final minutes = pace.floor();
+    final seconds = ((pace - minutes) * 60).round();
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -228,8 +225,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
                     markers: [
                       Marker(
                         point: _currentPosition!,
-                        width: 80,
-                        height: 80,
                         child: const Icon(
                           Icons.location_pin,
                           color: Colors.blue,
@@ -267,7 +262,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       ),
                       Expanded(
                         child: Text(
-                          widget.activityType,
+                          'Run',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 20,
@@ -293,7 +288,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                     child: Column(
                       children: [
                         Text(
-                          _formatDuration(),
+                          _formatDuration(_duration),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 32,
@@ -302,7 +297,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Distance: ${(_distance / 1000).toStringAsFixed(2)} km',
+                          'Distance: ${_distance.toStringAsFixed(2)} km',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 18,
@@ -320,10 +315,10 @@ class _TrackingScreenState extends State<TrackingScreen> {
                 right: 0,
                 child: Center(
                   child: FloatingActionButton.extended(
-                    onPressed: _isTracking ? _stopTracking : _startTracking,
-                    label: Text(_isTracking ? 'STOP' : 'START'),
-                    icon: Icon(_isTracking ? Icons.stop : Icons.play_arrow),
-                    backgroundColor: _isTracking ? Colors.red : Colors.green,
+                    onPressed: _togglePause,
+                    label: Text(_isPaused ? 'RESUME' : 'PAUSE'),
+                    icon: Icon(_isPaused ? Icons.play_arrow : Icons.pause),
+                    backgroundColor: _isPaused ? Colors.green : Colors.red,
                   ),
                 ),
               ),

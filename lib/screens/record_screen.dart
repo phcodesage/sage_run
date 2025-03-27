@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
+import '../services/tracking_service.dart';
 import 'tracking_screen.dart';
 
 class RecordScreen extends StatefulWidget {
@@ -10,172 +14,197 @@ class RecordScreen extends StatefulWidget {
 }
 
 class _RecordScreenState extends State<RecordScreen> {
-  bool _isLoading = true;
-  bool _hasGpsPermission = false;
-  String _selectedActivity = 'Run'; // Default to Run
+  final TrackingService _trackingService = TrackingService();
+  Position? _currentPosition;
+  bool _isTracking = false;
 
   @override
   void initState() {
     super.initState();
-    _checkGpsStatus();
+    _checkLocationPermission();
   }
 
-  Future<void> _checkGpsStatus() async {
-    setState(() => _isLoading = true);
-    try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        setState(() {
-          _hasGpsPermission = false;
-          _isLoading = false;
-        });
-        return;
+  Future<void> _checkLocationPermission() async {
+    final status = await Permission.location.request();
+    if (status.isGranted) {
+      _getCurrentLocation();
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location permission is required for tracking')),
+        );
       }
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      setState(() {
-        _hasGpsPermission = permission == LocationPermission.always || 
-                           permission == LocationPermission.whileInUse;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _hasGpsPermission = false;
-        _isLoading = false;
-      });
     }
   }
 
-  void _showSettingsMenu() {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.notifications),
-              title: const Text('Audio Cues'),
-              trailing: Switch(
-                value: true, // Replace with actual setting
-                onChanged: (value) {
-                  // Implement settings change
-                },
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.speed),
-              title: const Text('Units'),
-              trailing: DropdownButton<String>(
-                value: 'km',
-                items: const [
-                  DropdownMenuItem(value: 'km', child: Text('Kilometers')),
-                  DropdownMenuItem(value: 'mi', child: Text('Miles')),
-                ],
-                onChanged: (value) {
-                  // Implement unit change
-                },
-              ),
-            ),
-            // Add more settings as needed
-          ],
-        ),
-      ),
-    );
+  Future<void> _getCurrentLocation() async {
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      setState(() {
+        _currentPosition = position;
+      });
+    } catch (e) {
+      print('Error getting location: $e');
+    }
   }
 
-  void _startTracking() {
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => TrackingScreen(
-          activityType: _selectedActivity,
-        ),
-      ),
-    );
+  Future<void> _startTracking() async {
+    if (_currentPosition == null) {
+      await _getCurrentLocation();
+    }
+
+    if (_currentPosition != null) {
+      final success = await _trackingService.startTracking();
+      if (success && mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => TrackingScreen(
+              initialPosition: _currentPosition!,
+            ),
+          ),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: const Text('New Activity'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: _showSettingsMenu,
-          ),
-        ],
-      ),
-      body: Column(
+      body: Stack(
         children: [
-          // GPS Status Indicator
-          Container(
-            padding: const EdgeInsets.all(8),
-            color: _isLoading
-                ? Colors.grey
-                : _hasGpsPermission
-                    ? Colors.green
-                    : Colors.red,
-            child: Center(
-              child: Text(
-                _isLoading
-                    ? 'Checking GPS...'
-                    : _hasGpsPermission
-                        ? 'GPS Ready'
-                        : 'GPS Not Available',
-                style: const TextStyle(color: Colors.white),
+          // Map
+          if (_currentPosition != null)
+            FlutterMap(
+              options: MapOptions(
+                center: LatLng(
+                  _currentPosition!.latitude,
+                  _currentPosition!.longitude,
+                ),
+                zoom: 15,
               ),
-            ),
-          ),
-          
-          // Activity Type Selection
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Text(
-                  'Choose Activity Type',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.example.sagerun',
                 ),
-                const SizedBox(height: 30),
-                SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'Walk', label: Text('Walk')),
-                    ButtonSegment(value: 'Run', label: Text('Run')),
-                  ],
-                  selected: {_selectedActivity},
-                  onSelectionChanged: (Set<String> newSelection) {
-                    setState(() {
-                      _selectedActivity = newSelection.first;
-                    });
-                  },
-                ),
-                const SizedBox(height: 50),
-                FilledButton.icon(
-                  onPressed: _hasGpsPermission ? _startTracking : null,
-                  icon: const Icon(Icons.play_arrow),
-                  label: const Text('START'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 32,
-                      vertical: 16,
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: LatLng(
+                        _currentPosition!.latitude,
+                        _currentPosition!.longitude,
+                      ),
+                      child: const Icon(
+                        Icons.location_on,
+                        color: Colors.red,
+                        size: 40,
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ],
             ),
+          
+          // Overlay UI
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, -5),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Stats Row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildStatItem(
+                        icon: Icons.timer,
+                        label: 'Time',
+                        value: '0:00:00',
+                      ),
+                      _buildStatItem(
+                        icon: Icons.directions_run,
+                        label: 'Distance',
+                        value: '0.0 km',
+                      ),
+                      _buildStatItem(
+                        icon: Icons.speed,
+                        label: 'Pace',
+                        value: '--:-- /km',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Start Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: ElevatedButton(
+                      onPressed: _startTracking,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Start Activity',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildStatItem({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Column(
+      children: [
+        Icon(icon, size: 24),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
     );
   }
 } 

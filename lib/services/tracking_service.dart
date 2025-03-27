@@ -1,13 +1,14 @@
 import 'dart:isolate';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:geolocator/geolocator.dart';
 
 class TrackingService {
-  static Future<void> initForegroundTask() async {
+  static void initForegroundTask() {
     FlutterForegroundTask.init(
       androidNotificationOptions: AndroidNotificationOptions(
-        channelId: 'tracking_service',
-        channelName: 'Tracking Service',
-        channelDescription: 'Shows tracking status',
+        channelId: 'tracking_channel',
+        channelName: 'Activity Tracking',
+        channelDescription: 'Tracking your activity in the background',
         channelImportance: NotificationChannelImportance.HIGH,
         priority: NotificationPriority.HIGH,
         iconData: const NotificationIconData(
@@ -21,42 +22,62 @@ class TrackingService {
         playSound: false,
       ),
       foregroundTaskOptions: const ForegroundTaskOptions(
-        interval: 1000,
-        isOnceEvent: false,
+        interval: 5000,
         autoRunOnBoot: false,
+        allowWakeLock: true,
         allowWifiLock: true,
       ),
     );
   }
 
-  static Future<bool> startTracking({
-    required String duration,
-    required String distance,
-  }) async {
-    // Start foreground service
-    await FlutterForegroundTask.startService(
-      notificationTitle: 'Tracking Active',
-      notificationText: 'Duration: $duration\nDistance: $distance km',
-      callback: startCallback,
-    );
-
-    return FlutterForegroundTask.isRunningService;
-  }
-
-  static Future<void> updateTracking({
-    required String duration,
-    required String distance,
-  }) async {
-    if (await FlutterForegroundTask.isRunningService) {
-      FlutterForegroundTask.updateService(
-        notificationTitle: 'Tracking Active',
-        notificationText: 'Duration: $duration\nDistance: $distance km',
+  Future<bool> startTracking() async {
+    try {
+      await FlutterForegroundTask.startService(
+        notificationTitle: 'Sage Run',
+        notificationText: 'Tracking your activity',
       );
+      return true;
+    } catch (e) {
+      print('Error starting tracking: $e');
+      return false;
     }
   }
 
-  static Future<void> stopTracking() async {
-    await FlutterForegroundTask.stopService();
+  void startLocationUpdates(Function(Position) onLocationUpdate) {
+    Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10, // Update every 10 meters
+      ),
+    ).listen(onLocationUpdate);
+  }
+
+  void pauseTracking() {
+    FlutterForegroundTask.updateService(
+      notificationTitle: 'Sage Run',
+      notificationText: 'Activity paused',
+    );
+  }
+
+  void resumeTracking() {
+    FlutterForegroundTask.updateService(
+      notificationTitle: 'Sage Run',
+      notificationText: 'Tracking your activity',
+    );
+  }
+
+  void stopTracking() {
+    FlutterForegroundTask.stopService();
+  }
+
+  static void updateTracking({
+    required String duration,
+    required String distance,
+  }) {
+    FlutterForegroundTask.updateService(
+      notificationTitle: 'Sage Run',
+      notificationText: '$duration • $distance km',
+    );
   }
 }
 
