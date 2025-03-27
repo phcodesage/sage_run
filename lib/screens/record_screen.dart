@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/tracking_service.dart';
 import 'tracking_screen.dart';
+import 'dart:async';
 
 class RecordScreen extends StatefulWidget {
   const RecordScreen({super.key});
@@ -17,11 +18,24 @@ class _RecordScreenState extends State<RecordScreen> {
   final TrackingService _trackingService = TrackingService();
   Position? _currentPosition;
   bool _isTracking = false;
+  Timer? _timer;
+  Duration _duration = Duration.zero;
+  String _timeString = '00:00:00';
 
   @override
   void initState() {
     super.initState();
+    TrackingService.initForegroundTask();
     _checkLocationPermission();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    if (_isTracking) {
+      _trackingService.stopTracking();
+    }
+    super.dispose();
   }
 
   Future<void> _checkLocationPermission() async {
@@ -50,6 +64,31 @@ class _RecordScreenState extends State<RecordScreen> {
     }
   }
 
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        _duration += const Duration(seconds: 1);
+        _timeString = _formatDuration(_duration);
+      });
+    });
+  }
+
+  void _stopTimer() {
+    _timer?.cancel();
+    setState(() {
+      _duration = Duration.zero;
+      _timeString = '00:00:00';
+    });
+  }
+
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final hours = twoDigits(duration.inHours);
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+    return '$hours:$minutes:$seconds';
+  }
+
   Future<void> _startTracking() async {
     if (_currentPosition == null) {
       await _getCurrentLocation();
@@ -58,6 +97,9 @@ class _RecordScreenState extends State<RecordScreen> {
     if (_currentPosition != null) {
       final success = await _trackingService.startTracking();
       if (success && mounted) {
+        setState(() {
+          _isTracking = true;
+        });
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -65,8 +107,23 @@ class _RecordScreenState extends State<RecordScreen> {
               initialPosition: _currentPosition!,
             ),
           ),
-        );
+        ).then((_) {
+          if (mounted) {
+            setState(() {
+              _isTracking = false;
+            });
+          }
+        });
       }
+    }
+  }
+
+  Future<void> _stopTracking() async {
+    await _trackingService.stopTracking();
+    if (mounted) {
+      setState(() {
+        _isTracking = false;
+      });
     }
   }
 
@@ -135,7 +192,7 @@ class _RecordScreenState extends State<RecordScreen> {
                       _buildStatItem(
                         icon: Icons.timer,
                         label: 'Time',
-                        value: '0:00:00',
+                        value: _timeString,
                       ),
                       _buildStatItem(
                         icon: Icons.directions_run,
@@ -150,22 +207,24 @@ class _RecordScreenState extends State<RecordScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  // Start Button
+                  // Start/Stop Button
                   SizedBox(
                     width: double.infinity,
                     height: 56,
                     child: ElevatedButton(
-                      onPressed: _startTracking,
+                      onPressed: _isTracking ? _stopTracking : _startTracking,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        backgroundColor: _isTracking 
+                            ? Colors.red // Red for Stop
+                            : Theme.of(context).colorScheme.primary,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: const Text(
-                        'Start Activity',
-                        style: TextStyle(
+                      child: Text(
+                        _isTracking ? 'Stop Activity' : 'Start Activity',
+                        style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                         ),
@@ -207,4 +266,4 @@ class _RecordScreenState extends State<RecordScreen> {
       ],
     );
   }
-} 
+}

@@ -66,8 +66,8 @@ class TrackingService {
     );
   }
 
-  void stopTracking() {
-    FlutterForegroundTask.stopService();
+  Future<void> stopTracking() async {
+    await FlutterForegroundTask.stopService();
   }
 
   static void updateTracking({

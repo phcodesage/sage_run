@@ -46,9 +46,12 @@ class _TrackingScreenState extends State<TrackingScreen> {
   void initState() {
     super.initState();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    TrackingService.initForegroundTask();
-    _checkLocationPermission();
     _startTime = DateTime.now();
+    _initializeTracking();
+  }
+
+  Future<void> _initializeTracking() async {
+    await _checkLocationPermission();
     _startTracking();
   }
 
@@ -101,15 +104,25 @@ class _TrackingScreenState extends State<TrackingScreen> {
   }
 
   void _startTracking() {
+    setState(() {
+      _isTracking = true;
+      _currentPosition = LatLng(
+        widget.initialPosition.latitude,
+        widget.initialPosition.longitude,
+      );
+    });
+
     _trackingService.startLocationUpdates((position) {
-      setState(() {
-        _routePoints.add(LatLng(position.latitude, position.longitude));
-        _updateStats(position);
-      });
+      if (mounted) {
+        setState(() {
+          _routePoints.add(LatLng(position.latitude, position.longitude));
+          _updateStats(position);
+        });
+      }
     });
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!_isPaused) {
+      if (!_isPaused && mounted) {
         setState(() {
           _duration += const Duration(seconds: 1);
         });
@@ -170,7 +183,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
     }
 
     if (mounted) {
-      Navigator.pop(context);
+      Navigator.of(context).pop();
     }
   }
 
@@ -308,17 +321,33 @@ class _TrackingScreenState extends State<TrackingScreen> {
                   ),
                 ),
               ),
-              // Start/Stop button
+              // Control buttons
               Positioned(
                 bottom: 32,
                 left: 0,
                 right: 0,
-                child: Center(
-                  child: FloatingActionButton.extended(
-                    onPressed: _togglePause,
-                    label: Text(_isPaused ? 'RESUME' : 'PAUSE'),
-                    icon: Icon(_isPaused ? Icons.play_arrow : Icons.pause),
-                    backgroundColor: _isPaused ? Colors.green : Colors.red,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // Stop Button
+                      FloatingActionButton.extended(
+                        heroTag: 'stop_button',
+                        onPressed: _stopTracking,
+                        label: const Text('STOP'),
+                        icon: const Icon(Icons.stop),
+                        backgroundColor: Colors.red,
+                      ),
+                      // Pause/Resume Button
+                      FloatingActionButton.extended(
+                        heroTag: 'pause_button',
+                        onPressed: _togglePause,
+                        label: Text(_isPaused ? 'RESUME' : 'PAUSE'),
+                        icon: Icon(_isPaused ? Icons.play_arrow : Icons.pause),
+                        backgroundColor: _isPaused ? Colors.green : Colors.orange,
+                      ),
+                    ],
                   ),
                 ),
               ),
