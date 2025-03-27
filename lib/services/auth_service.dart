@@ -115,10 +115,30 @@ class AuthService {
 
   // Sign out
   Future<void> signOut() async {
-    await _googleSignIn.signOut();
-    await FacebookAuth.instance.logOut();
-    await _auth.signOut();
-    await _prefs.remove('user');
+    try {
+      // Sign out from Google
+      if (await _googleSignIn.isSignedIn()) {
+        await _googleSignIn.signOut();
+      }
+
+      // Sign out from Facebook
+      try {
+        await FacebookAuth.instance.logOut();
+      } catch (e) {
+        print('Error signing out from Facebook: $e');
+      }
+
+      // Sign out from Firebase
+      await _auth.signOut();
+
+      // Clear local storage
+      await _prefs.remove('user');
+    } catch (e) {
+      print('Error during sign out: $e');
+      // Even if there's an error, try to sign out from Firebase
+      await _auth.signOut();
+      await _prefs.remove('user');
+    }
   }
 
   // Get saved user
